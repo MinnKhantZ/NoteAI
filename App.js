@@ -1,26 +1,40 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
-import axios from "axios";
+
 
 export default function App() {
   const [notes, setNotes] = useState([]);
   const [content, setContent] = useState("");
 
   useEffect(() => {
-    fetchNotes();
-  }, []);
+    loadNotes();
+  }, [notes]);
 
-  const fetchNotes = async () => {
-    const response = await axios.get("http://192.168.132.150:5000/notes");
-    setNotes(response.data);
+  const loadNotes = async () => {
+    const savedNotes = await AsyncStorage.getItem("notes");
+    if (savedNotes) {
+      setNotes(JSON.parse(savedNotes));
+    }
+  };
+
+  const saveNotes = async (newNotes) => {
+    await AsyncStorage.setItem("notes", JSON.stringify(newNotes));
+    setNotes(newNotes);
   };
 
   const createNote = async () => {
     if (!content.trim()) return;
-    const response = await axios.post("http://192.168.132.150:5000/notes", { content });
-    setNotes([response.data, ...notes]);
+    const newNote = { content, createdAt: new Date().toISOString() };
+    const updatedNotes = [...notes, newNote];
+    await saveNotes(updatedNotes);
     setContent("");
+  };
+
+  const deleteNote = async (index) => {
+    const updatedNotes = notes.filter((_, i) => i !== index);
+    await saveNotes(updatedNotes);
   };
 
   return (
@@ -42,10 +56,13 @@ export default function App() {
       <ScrollView style={styles.notesContainer}>
         {notes.map((note, index) => (
           <View key={index} style={styles.note}>
-            <Text style={styles.noteText}><Text style={styles.bold}>Original:</Text> {note.content}</Text>
-            <Text style={styles.suggestionText}><Text style={styles.bold}>Suggestion:</Text> {note.suggestions.map((text, index) => (
-              <Text key={index}>{text}</Text>
-            ))}</Text>
+            <View>
+              <Text style={styles.noteText}><Text style={styles.bold}>Original:</Text> {note.content}</Text>
+              <Text style={styles.suggestionText}><Text style={styles.bold}>Suggestion:</Text> Please go online</Text>
+            </View>
+            <TouchableOpacity style={styles.deleteButton} onPress={() => deleteNote(index)}>
+              <Text style={styles.buttonText}>Delete</Text>
+            </TouchableOpacity>
           </View>
         ))}
       </ScrollView>
@@ -65,4 +82,5 @@ const styles = StyleSheet.create({
   noteText: { fontSize: 16 },
   suggestionText: { fontSize: 14, color: "gray" },
   bold: { fontWeight: "bold" },
+  deleteButton: { backgroundColor: "red", alignSelf: 'flex-end', padding: 10, borderRadius: 5 }
 });
