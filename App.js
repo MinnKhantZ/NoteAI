@@ -1,8 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, useFocusEffect } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { StatusBar } from "expo-status-bar";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -18,9 +18,12 @@ function HomeScreen({ navigation }) {
   const [notes, setNotes] = useState([]);
   const [content, setContent] = useState("");
 
-  useEffect(() => {
-    loadNotes();
-  }, [notes]);
+  useFocusEffect(
+    useCallback(() => {
+      loadNotes();
+    }, [])
+  )
+
 
   const loadNotes = async () => {
     const savedNotes = await AsyncStorage.getItem("notes");
@@ -130,7 +133,7 @@ export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator>
-        <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="Home" component={HomeScreen} options={{headerShown: false}} />
         <Stack.Screen name="Details" component={DetailsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
@@ -144,6 +147,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     textAlign: "center",
     marginBottom: 20,
+    marginTop: 50,
   },
   input: {
     borderWidth: 1,
