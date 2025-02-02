@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NavigationContainer, useFocusEffect } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { StatusBar } from "expo-status-bar";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,12 +11,13 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from "react-native";
+import { FAB } from "react-native-paper";
 
 const Stack = createStackNavigator();
 
 function HomeScreen({ navigation }) {
   const [notes, setNotes] = useState([]);
-  const [content, setContent] = useState("");
+  // const [content, setContent] = useState("");
 
   useFocusEffect(
     useCallback(() => {
@@ -32,34 +33,9 @@ function HomeScreen({ navigation }) {
     }
   };
 
-  const saveNotes = async (newNotes) => {
-    await AsyncStorage.setItem("notes", JSON.stringify(newNotes));
-    setNotes(newNotes);
-  };
-
-  const createNote = async () => {
-    if (!content.trim()) return;
-    const newNote = { content, createdAt: new Date().toISOString() };
-    const updatedNotes = [...notes, newNote];
-    await saveNotes(updatedNotes);
-    setContent("");
-  };
-
   return (
     <View style={styles.container}>
       <Text style={styles.header}>Note-Taking App</Text>
-
-      <TextInput
-        style={styles.input}
-        multiline
-        placeholder="Write your note here..."
-        value={content}
-        onChangeText={setContent}
-      />
-
-      <TouchableOpacity style={styles.button} onPress={createNote}>
-        <Text style={styles.buttonText}>Save Note</Text>
-      </TouchableOpacity>
 
       <ScrollView style={styles.notesContainer}>
         {notes.map((note, index) => (
@@ -79,6 +55,7 @@ function HomeScreen({ navigation }) {
           </TouchableOpacity>
         ))}
       </ScrollView>
+      <FAB icon='plus' style={styles.addButton} onPress={() => navigation.navigate("Details", { note: {content: ""}, index: notes.length })}/>
       <StatusBar style="auto" />
     </View>
   );
@@ -86,21 +63,42 @@ function HomeScreen({ navigation }) {
 
 function DetailsScreen({ route, navigation }) {
   const { note, index } = route.params;
+  const [notes, setNotes] = useState([]);
   const [content, setContent] = useState(note.content);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadNotes();
+    }, [])
+  )
+
+  const loadNotes = async () => {
+    const savedNotes = await AsyncStorage.getItem("notes");
+    if (savedNotes) {
+      setNotes(JSON.parse(savedNotes));
+    }
+  };
+  
+  const saveNotes = async (newNotes) => {
+    await AsyncStorage.setItem("notes", JSON.stringify(newNotes));
+    setNotes(newNotes);
+  };
+
   const deleteNote = async () => {
-    const notes = await AsyncStorage.getItem("notes");
-    const updatedNotes = JSON.parse(notes).filter((_, i) => i !== index);
+    const updatedNotes = notes.filter((_, i) => i !== index);
     await AsyncStorage.setItem("notes", JSON.stringify(updatedNotes));
     navigation.goBack();
   };
 
-  const saveNote = async () => {
-    const notes = JSON.parse(await AsyncStorage.getItem("notes"));
-    notes[index].content = content;
-    await AsyncStorage.setItem("notes", JSON.stringify(notes));
+  const createNote = async () => {
+    if (!content.trim()) return;
+    const newNote = { content, createdAt: new Date().toISOString() };
+    const updatedNotes = [...notes];
+    updatedNotes[index] = newNote;
+    await saveNotes(updatedNotes);
+    setContent("");
     navigation.goBack();
-  }
+  };
 
   return (
     <View style={styles.container}>
@@ -120,7 +118,7 @@ function DetailsScreen({ route, navigation }) {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.saveButton}
-          onPress={saveNote}
+          onPress={createNote}
         >
           <Text style={styles.buttonText}>Save</Text>
         </TouchableOpacity>
@@ -150,12 +148,7 @@ const styles = StyleSheet.create({
     marginTop: 50,
   },
   input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
     padding: 10,
-    borderRadius: 5,
-    backgroundColor: "#fff",
-    minHeight: 100,
   },
   button: {
     backgroundColor: "#007bff",
@@ -177,11 +170,14 @@ const styles = StyleSheet.create({
   buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
     gap: 10,
     marginTop: 10,
   },
   deleteButton: {
-    backgroundColor: "red",
+    backgroundColor: "#ff0000",
     padding: 10,
     borderRadius: 5,
   },
@@ -190,4 +186,11 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 5,
   },
+  addButton: {
+    backgroundColor: "#007bff",
+    alignSelf: 'flex-end',
+    right: 20,
+    bottom: 20,
+    borderRadius: 30,
+  }
 });
