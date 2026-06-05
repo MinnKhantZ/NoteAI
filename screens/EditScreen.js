@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Share,
   Alert,
   ScrollView,
 } from "react-native";
@@ -16,8 +15,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Print from "expo-print";
-import * as Sharing from "expo-sharing";
 import * as Clipboard from "expo-clipboard";
 import TagInput from "../components/TagInput";
 import AIBottomSheet from "../components/AIBottomSheet";
@@ -144,48 +141,15 @@ export default function EditScreen({ route, navigation }) {
         text: isArchivedRef.current ? "Unarchive" : "Archive",
         onPress: handleArchiveToggle,
       },
-      { text: "Share", onPress: handleShare },
       { text: "Copy to Clipboard", onPress: handleCopyToClipboard },
-      { text: "Export as PDF", onPress: handleExportPDF },
-      noteId ? { text: "Delete Note", style: "destructive", onPress: handleDelete } : null,
       { text: "Cancel", style: "cancel" },
     ].filter(Boolean));
-  };
-
-  const handleShare = async () => {
-    const text = title ? `${title}\n\n${body}` : body;
-    if (!text.trim()) return;
-    await Share.share({ message: text });
   };
 
   const handleCopyToClipboard = async () => {
     const text = title ? `${title}\n\n${body}` : body;
     await Clipboard.setStringAsync(text);
     Alert.alert("Copied", "Note content copied to clipboard.");
-  };
-
-  const handleExportPDF = async () => {
-    const pdfHtml = `<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <style>
-      body { font-family: -apple-system, Helvetica, sans-serif; padding: 32px; color: #1a1a1a; line-height: 1.6; }
-      h1 { font-size: 22px; margin-bottom: 20px; }
-      p { font-size: 15px; margin: 0 0 12px; white-space: pre-wrap; }
-    </style>
-  </head>
-  <body>
-    ${title ? `<h1>${title}</h1>` : ""}
-    <p>${body.replace(/\n/g, "<br/>")}</p>
-  </body>
-</html>`;
-    try {
-      const { uri } = await Print.printToFileAsync({ html: pdfHtml });
-      await Sharing.shareAsync(uri, { mimeType: "application/pdf" });
-    } catch (err) {
-      Alert.alert("Export failed", "Could not generate PDF.");
-    }
   };
 
   const handleSave = async () => {
@@ -258,7 +222,9 @@ export default function EditScreen({ route, navigation }) {
   };
 
   const handleAIApply = (text, action) => {
-    if (action === "suggestions" || action === "continue") {
+    if (action === "suggestions") {
+      setBody(text);
+    } else if (action === "continue") {
       setBody((prev) => prev + "\n" + text);
     } else if (action === "auto-title") {
       setTitle(text);

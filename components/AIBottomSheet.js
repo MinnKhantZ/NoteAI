@@ -14,9 +14,9 @@ import { radius, shadows, typography } from "../theme";
 
 const ACTION_CONFIG = {
   suggestions: {
-    title: "AI Suggestions",
+    title: "Improved Versions",
     icon: "lightbulb-outline",
-    applyLabel: null,
+    applyLabel: "Replace",
     isList: true,
   },
   summarize: {
@@ -64,11 +64,7 @@ export default function AIBottomSheet({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <TouchableOpacity
-        style={styles.backdrop}
-        activeOpacity={1}
-        onPress={onClose}
-      />
+      <View style={{ flex: 1 }} />
       <View
         style={[
           styles.sheet,
@@ -102,17 +98,6 @@ export default function AIBottomSheet({
           <Text style={[styles.title, { color: colors.text }]}>
             {config.title}
           </Text>
-          <TouchableOpacity
-            onPress={onClose}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            style={[styles.closeBtn, { backgroundColor: colors.tag }]}
-          >
-            <MaterialCommunityIcons
-              name="close"
-              size={16}
-              color={colors.subtext}
-            />
-          </TouchableOpacity>
         </View>
 
         {loading ? (
@@ -151,6 +136,16 @@ export default function AIBottomSheet({
                   >
                     {i + 1}. {item}
                   </Text>
+                  {config.applyLabel && (
+                    <TouchableOpacity
+                      style={[styles.applyBtn, { backgroundColor: colors.primary }]}
+                      onPress={() => onApply(item, action)}
+                    >
+                      <Text style={[styles.applyBtnText, { color: "#fff" }]}>
+                        {config.applyLabel}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               ))
             ) : (
@@ -187,10 +182,6 @@ export default function AIBottomSheet({
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-  },
   sheet: {
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
@@ -226,13 +217,6 @@ const styles = StyleSheet.create({
   title: {
     flex: 1,
     ...typography.h2,
-  },
-  closeBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
   },
   loadingContainer: {
     alignItems: "center",
