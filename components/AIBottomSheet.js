@@ -9,12 +9,14 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useTheme } from "../contexts/ThemeContext";
+import { radius, shadows, typography } from "../theme";
 
 const ACTION_CONFIG = {
   suggestions: {
     title: "AI Suggestions",
     icon: "lightbulb-outline",
-    applyLabel: "Apply",
+    applyLabel: null,
     isList: true,
   },
   summarize: {
@@ -48,9 +50,11 @@ export default function AIBottomSheet({
   action,
   result,
   loading,
+  error,
   onClose,
   onApply,
 }) {
+  const { colors } = useTheme();
   const config = ACTION_CONFIG[action] || ACTION_CONFIG.suggestions;
 
   return (
@@ -65,53 +69,111 @@ export default function AIBottomSheet({
         activeOpacity={1}
         onPress={onClose}
       />
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
-        <View style={styles.header}>
-          <MaterialCommunityIcons name={config.icon} size={20} color="#1a73e8" />
-          <Text style={styles.title}>{config.title}</Text>
+      <View
+        style={[
+          styles.sheet,
+          {
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+          },
+        ]}
+      >
+        <View
+          style={[styles.handle, { backgroundColor: colors.border }]}
+        />
+        <View
+          style={[
+            styles.header,
+            { borderBottomColor: colors.border },
+          ]}
+        >
+          <View
+            style={[
+              styles.iconBadge,
+              { backgroundColor: colors.tag },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={config.icon}
+              size={18}
+              color={colors.primary}
+            />
+          </View>
+          <Text style={[styles.title, { color: colors.text }]}>
+            {config.title}
+          </Text>
           <TouchableOpacity
             onPress={onClose}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={[styles.closeBtn, { backgroundColor: colors.tag }]}
           >
-            <MaterialCommunityIcons name="close" size={20} color="#666" />
+            <MaterialCommunityIcons
+              name="close"
+              size={16}
+              color={colors.subtext}
+            />
           </TouchableOpacity>
         </View>
 
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#1a73e8" />
-            <Text style={styles.loadingText}>Thinking...</Text>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={[styles.loadingText, { color: colors.subtext }]}>
+              Thinking…
+            </Text>
           </View>
         ) : (
-          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-            {config.isList && Array.isArray(result) ? (
+          <ScrollView
+            style={styles.content}
+            showsVerticalScrollIndicator={false}
+          >
+            {error ? (
+              <View style={styles.singleResult}>
+                <Text
+                  style={[styles.itemText, { color: colors.danger }]}
+                  selectable
+                >
+                  {error}
+                </Text>
+              </View>
+            ) : config.isList && Array.isArray(result) ? (
               result.map((item, i) => (
-                <View key={i} style={styles.suggestionItem}>
-                  <Text style={styles.itemText}>
+                <View
+                  key={i}
+                  style={[
+                    styles.suggestionItem,
+                    { borderColor: colors.border },
+                  ]}
+                >
+                  <Text
+                    style={[styles.itemText, { color: colors.text }]}
+                    selectable
+                  >
                     {i + 1}. {item}
                   </Text>
-                  {config.applyLabel && (
-                    <TouchableOpacity
-                      style={styles.applyBtn}
-                      onPress={() => onApply(item, action)}
-                    >
-                      <Text style={styles.applyBtnText}>{config.applyLabel}</Text>
-                    </TouchableOpacity>
-                  )}
                 </View>
               ))
             ) : (
               <View style={styles.singleResult}>
-                <Text style={styles.itemText}>
+                <Text
+                  style={[styles.itemText, { color: colors.text }]}
+                  selectable
+                >
                   {typeof result === "string" ? result : ""}
                 </Text>
-                {config.applyLabel && typeof result === "string" && result ? (
+                {config.applyLabel &&
+                  typeof result === "string" &&
+                  result ? (
                   <TouchableOpacity
-                    style={styles.applyBtnFull}
+                    style={[
+                      styles.applyBtnFull,
+                      { backgroundColor: colors.primary },
+                    ]}
                     onPress={() => onApply(result, action)}
                   >
-                    <Text style={styles.applyBtnFullText}>{config.applyLabel}</Text>
+                    <Text style={styles.applyBtnFullText}>
+                      {config.applyLabel}
+                    </Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -127,22 +189,23 @@ export default function AIBottomSheet({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: "rgba(0,0,0,0.45)",
   },
   sheet: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    borderWidth: 1,
+    borderBottomWidth: 0,
     maxHeight: "60%",
     paddingBottom: 32,
+    ...shadows.lg,
   },
   handle: {
-    width: 36,
+    width: 40,
     height: 4,
-    borderRadius: 2,
-    backgroundColor: "#e0e0e0",
+    borderRadius: radius.full,
     alignSelf: "center",
-    marginTop: 10,
+    marginTop: 12,
     marginBottom: 4,
   },
   header: {
@@ -150,62 +213,69 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    gap: 8,
+    gap: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+  },
+  iconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
   },
   title: {
     flex: 1,
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1a1a1a",
+    ...typography.h2,
+  },
+  closeBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
   },
   loadingContainer: {
     alignItems: "center",
     paddingVertical: 40,
-    gap: 12,
+    gap: 14,
   },
   loadingText: {
-    color: "#666",
     fontSize: 14,
   },
   content: {
     padding: 16,
   },
   suggestionItem: {
-    marginBottom: 16,
+    marginBottom: 14,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
   },
   singleResult: {
     paddingBottom: 8,
   },
   itemText: {
     fontSize: 14,
-    color: "#1a1a1a",
-    lineHeight: 21,
+    lineHeight: 22,
     marginBottom: 10,
   },
   applyBtn: {
     alignSelf: "flex-start",
-    backgroundColor: "#e8f0fe",
     paddingHorizontal: 14,
     paddingVertical: 6,
-    borderRadius: 16,
+    borderRadius: radius.full,
   },
   applyBtnText: {
-    color: "#1a73e8",
     fontSize: 13,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   applyBtnFull: {
-    backgroundColor: "#1a73e8",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: radius.md,
+    paddingVertical: 12,
     alignItems: "center",
     marginTop: 4,
   },
   applyBtnFullText: {
-    color: "#ffffff",
+    color: "#fff",
     fontSize: 14,
     fontWeight: "600",
   },

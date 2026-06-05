@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,63 +7,53 @@ import {
   StyleSheet,
   Share,
   Alert,
-  useColorScheme,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
 } from "react-native";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { RichText, Toolbar, useEditorBridge, TenTapStartKit } from "@10play/tentap-editor";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as Clipboard from "expo-clipboard";
 import TagInput from "../components/TagInput";
 import AIBottomSheet from "../components/AIBottomSheet";
 import { loadNotes, saveNotes, loadFolders, createNote, stripHtml } from "../utils/storage";
-import { lightColors, darkColors } from "../theme";
+import { useTheme } from "../contexts/ThemeContext";
+import { radius, shadows, typography } from "../theme";
 
 const AI_BACKEND = process.env.EXPO_PUBLIC_API_URL;
 
 export default function EditScreen({ route, navigation }) {
   const { noteId } = route.params;
-  const scheme = useColorScheme();
-  const colors = scheme === "dark" ? darkColors : lightColors;
+  const { colors } = useTheme();
+
+  const saveScale = useSharedValue(1);
+  const saveAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: saveScale.value }],
+  }));
 
   const [notes, setNotes] = useState([]);
   const [folders, setFolders] = useState([]);
   const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
   const [tags, setTags] = useState([]);
   const [folderId, setFolderId] = useState(null);
   const [isPinned, setIsPinned] = useState(false);
   const [isArchived, setIsArchived] = useState(false);
-  const [wordCount, setWordCount] = useState(0);
-  const [charCount, setCharCount] = useState(0);
   const [folderSheetVisible, setFolderSheetVisible] = useState(false);
 
-  // AI state
   const [aiSheetVisible, setAiSheetVisible] = useState(false);
   const [aiAction, setAiAction] = useState("suggestions");
   const [aiResult, setAiResult] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(null);
 
   const isPinnedRef = useRef(isPinned);
   const isArchivedRef = useRef(isArchived);
-
-  const editor = useEditorBridge({
-    autofocus: false,
-    avoidIosKeyboard: true,
-    initialContent: "",
-    bridgeExtensions: TenTapStartKit,
-    onContentUpdate: async (e) => {
-      try {
-        const html = await e.getHTML();
-        const text = stripHtml(html);
-        setCharCount(text.length);
-        setWordCount(text.trim() ? text.trim().split(/\s+/).length : 0);
-      } catch (_) {}
-    },
-  });
 
   useEffect(() => {
     loadData();
@@ -81,20 +71,17 @@ export default function EditScreen({ route, navigation }) {
       const note = loadedNotes.find((n) => n.id === noteId);
       if (note) {
         setTitle(note.title || "");
+        setBody(stripHtml(note.content || ""));
         setTags(note.tags || []);
         setFolderId(note.folderId || null);
         setIsPinned(note.isPinned || false);
         setIsArchived(note.isArchived || false);
         isPinnedRef.current = note.isPinned || false;
         isArchivedRef.current = note.isArchived || false;
-        setTimeout(() => {
-          editor.setContent(note.content || "");
-        }, 150);
       }
     }
   };
 
-  // Keep refs in sync for use inside navigation header callbacks
   useEffect(() => {
     isPinnedRef.current = isPinned;
   }, [isPinned]);
@@ -130,11 +117,32 @@ export default function EditScreen({ route, navigation }) {
     });
   }, [isPinned, isArchived, colors]);
 
+  const handleArchiveToggle = async () => {
+    const newArchived = !isArchivedRef.current;
+    setIsArchived(newArchived);
+
+    const now = Date.now();
+    const allNotes = await loadNotes();
+    let updatedNotes;
+    if (noteId) {
+      updatedNotes = allNotes.map((n) =>
+        n.id === noteId
+          ? { ...n, isArchived: newArchived, updatedAt: now }
+          : n
+      );
+    } else {
+      const newNote = createNote({ title, content: body, tags, folderId, isPinned, isArchived: newArchived });
+      updatedNotes = [...allNotes, newNote];
+    }
+    await saveNotes(updatedNotes);
+    navigation.goBack();
+  };
+
   const showMoreMenu = () => {
     Alert.alert("Note Options", undefined, [
       {
         text: isArchivedRef.current ? "Unarchive" : "Archive",
-        onPress: () => setIsArchived((v) => !v),
+        onPress: handleArchiveToggle,
       },
       { text: "Share", onPress: handleShare },
       { text: "Copy to Clipboard", onPress: handleCopyToClipboard },
@@ -145,21 +153,18 @@ export default function EditScreen({ route, navigation }) {
   };
 
   const handleShare = async () => {
-    const html = await editor.getHTML();
-    const text = title ? `${title}\n\n${stripHtml(html)}` : stripHtml(html);
+    const text = title ? `${title}\n\n${body}` : body;
     if (!text.trim()) return;
     await Share.share({ message: text });
   };
 
   const handleCopyToClipboard = async () => {
-    const html = await editor.getHTML();
-    const text = title ? `${title}\n\n${stripHtml(html)}` : stripHtml(html);
+    const text = title ? `${title}\n\n${body}` : body;
     await Clipboard.setStringAsync(text);
     Alert.alert("Copied", "Note content copied to clipboard.");
   };
 
   const handleExportPDF = async () => {
-    const html = await editor.getHTML();
     const pdfHtml = `<!DOCTYPE html>
 <html>
   <head>
@@ -167,12 +172,12 @@ export default function EditScreen({ route, navigation }) {
     <style>
       body { font-family: -apple-system, Helvetica, sans-serif; padding: 32px; color: #1a1a1a; line-height: 1.6; }
       h1 { font-size: 22px; margin-bottom: 20px; }
-      p { font-size: 15px; margin: 0 0 12px; }
+      p { font-size: 15px; margin: 0 0 12px; white-space: pre-wrap; }
     </style>
   </head>
   <body>
     ${title ? `<h1>${title}</h1>` : ""}
-    ${html}
+    <p>${body.replace(/\n/g, "<br/>")}</p>
   </body>
 </html>`;
     try {
@@ -184,9 +189,8 @@ export default function EditScreen({ route, navigation }) {
   };
 
   const handleSave = async () => {
-    const html = await editor.getHTML();
-    const isEmptyHtml = stripHtml(html).length === 0;
-    if (!title.trim() && isEmptyHtml) {
+    const isEmpty = !title.trim() && !body.trim();
+    if (isEmpty) {
       navigation.goBack();
       return;
     }
@@ -196,11 +200,11 @@ export default function EditScreen({ route, navigation }) {
     if (noteId) {
       updatedNotes = notes.map((n) =>
         n.id === noteId
-          ? { ...n, title, content: html, tags, folderId, isPinned, isArchived, updatedAt: now }
+          ? { ...n, title, content: body, tags, folderId, isPinned, isArchived, updatedAt: now }
           : n
       );
     } else {
-      const newNote = createNote({ title, content: html, tags, folderId, isPinned });
+      const newNote = createNote({ title, content: body, tags, folderId, isPinned });
       updatedNotes = [...notes, newNote];
     }
     await saveNotes(updatedNotes);
@@ -225,13 +229,13 @@ export default function EditScreen({ route, navigation }) {
   const callAI = async (action) => {
     setAiAction(action);
     setAiResult(null);
+    setAiError(null);
     setAiLoading(true);
     setAiSheetVisible(true);
     try {
-      const html = await editor.getHTML();
-      const content = stripHtml(html) || title;
+      const content = body || title;
       if (!content.trim()) {
-        setAiResult("Add some content to your note first.");
+        setAiError("Add some content to your note first.");
         setAiLoading(false);
         return;
       }
@@ -242,25 +246,24 @@ export default function EditScreen({ route, navigation }) {
       });
       const data = await response.json();
       if (!response.ok) {
-        setAiResult(data.error || "AI service unavailable. Please try again.");
+        setAiError(data.error || "AI service unavailable. Please try again.");
       } else {
         setAiResult(data.result);
       }
     } catch {
-      setAiResult("Could not connect to AI service. Check your internet connection.");
+      setAiError("Could not connect to AI service. Check your internet connection.");
     } finally {
       setAiLoading(false);
     }
   };
 
-  const handleAIApply = async (text, action) => {
+  const handleAIApply = (text, action) => {
     if (action === "suggestions" || action === "continue") {
-      const currentHtml = await editor.getHTML();
-      editor.setContent(currentHtml + `<p>${text}</p>`);
+      setBody((prev) => prev + "\n" + text);
     } else if (action === "auto-title") {
       setTitle(text);
     } else if (action === "fix-grammar") {
-      editor.setContent(`<p>${text}</p>`);
+      setBody(text);
     }
     setAiSheetVisible(false);
   };
@@ -277,12 +280,14 @@ export default function EditScreen({ route, navigation }) {
     { action: "fix-grammar", icon: "check-circle-outline", label: "Fix" },
   ];
 
+  const wordCount = body.trim() ? body.trim().split(/\s+/).length : 0;
+  const charCount = body.length;
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: colors.background }]}
       edges={["bottom"]}
     >
-      {/* Title Input */}
       <TextInput
         style={[
           styles.titleInput,
@@ -294,13 +299,9 @@ export default function EditScreen({ route, navigation }) {
         onChangeText={setTitle}
       />
 
-      {/* Tags */}
       <TagInput tags={tags} onChange={setTags} colors={colors} />
 
-      {/* Meta row: folder + archived badge */}
-      <View
-        style={[styles.metaRow, { borderBottomColor: colors.border }]}
-      >
+      <View style={[styles.metaRow, { borderBottomColor: colors.border }]}>
         <TouchableOpacity
           style={styles.metaButton}
           onPress={() => setFolderSheetVisible(true)}
@@ -333,7 +334,6 @@ export default function EditScreen({ route, navigation }) {
         )}
       </View>
 
-      {/* Folder picker (inline dropdown) */}
       {folderSheetVisible && (
         <View
           style={[
@@ -406,13 +406,19 @@ export default function EditScreen({ route, navigation }) {
         </View>
       )}
 
-      {/* Rich Text Editor */}
-      <RichText
-        editor={editor}
-        style={[styles.editor, { backgroundColor: colors.inputBg }]}
+      <TextInput
+        style={[
+          styles.bodyInput,
+          { color: colors.text, backgroundColor: colors.inputBg },
+        ]}
+        placeholder="Write something..."
+        placeholderTextColor={colors.placeholder}
+        value={body}
+        onChangeText={setBody}
+        multiline
+        textAlignVertical="top"
       />
 
-      {/* Bottom bar: stats + save/delete */}
       <View
         style={[
           styles.bottomBar,
@@ -432,16 +438,22 @@ export default function EditScreen({ route, navigation }) {
               />
             </TouchableOpacity>
           )}
-          <TouchableOpacity
-            onPress={handleSave}
-            style={[styles.saveBtn, { backgroundColor: colors.primary }]}
-          >
-            <Text style={styles.saveBtnText}>Save</Text>
-          </TouchableOpacity>
+          <Animated.View style={saveAnimStyle}>
+            <TouchableOpacity
+              onPress={() => {
+                saveScale.value = withSpring(0.9, { damping: 8 }, () => {
+                  saveScale.value = withSpring(1);
+                });
+                handleSave();
+              }}
+              style={[styles.saveBtn, { backgroundColor: colors.primary }]}
+            >
+              <Text style={styles.saveBtnText}>Save</Text>
+            </TouchableOpacity>
+          </Animated.View>
         </View>
       </View>
 
-      {/* AI Actions bar */}
       <View
         style={[
           styles.aiBar,
@@ -451,10 +463,10 @@ export default function EditScreen({ route, navigation }) {
         {AI_ACTIONS.map(({ action, icon, label }) => (
           <TouchableOpacity
             key={action}
-            style={styles.aiBtn}
+            style={[styles.aiBtn, { backgroundColor: colors.tag }]}
             onPress={() => callAI(action)}
           >
-            <MaterialCommunityIcons name={icon} size={20} color={colors.primary} />
+            <MaterialCommunityIcons name={icon} size={17} color={colors.primary} />
             <Text style={[styles.aiBtnLabel, { color: colors.primary }]}>
               {label}
             </Text>
@@ -462,21 +474,15 @@ export default function EditScreen({ route, navigation }) {
         ))}
       </View>
 
-      {/* Formatting Toolbar */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <Toolbar editor={editor} />
-      </KeyboardAvoidingView>
-
-      {/* AI Bottom Sheet */}
       <AIBottomSheet
         visible={aiSheetVisible}
         action={aiAction}
         result={aiResult}
         loading={aiLoading}
-        onClose={() => setAiSheetVisible(false)}
+        error={aiError}
+        onClose={() => { setAiSheetVisible(false); setAiError(null); }}
         onApply={handleAIApply}
+        colors={colors}
       />
     </SafeAreaView>
   );
@@ -491,6 +497,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
+  },
+  bodyInput: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 15,
+    lineHeight: 22,
   },
   metaRow: {
     flexDirection: "row",
@@ -534,9 +547,6 @@ const styles = StyleSheet.create({
   folderOptionText: {
     fontSize: 14,
   },
-  editor: {
-    flex: 1,
-  },
   bottomBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -558,25 +568,29 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   saveBtn: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     paddingVertical: 8,
-    borderRadius: 6,
+    borderRadius: radius.md,
+    ...shadows.sm,
   },
   saveBtnText: {
     color: "#fff",
-    fontWeight: "600",
+    fontWeight: "700",
     fontSize: 14,
   },
   aiBar: {
     flexDirection: "row",
     justifyContent: "space-around",
-    paddingVertical: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     borderTopWidth: 1,
+    gap: 6,
   },
   aiBtn: {
+    flex: 1,
     alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 7,
+    borderRadius: radius.md,
     gap: 2,
   },
   aiBtnLabel: {

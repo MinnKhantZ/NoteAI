@@ -1,17 +1,40 @@
-import React, { useRef } from "react";
+import React, { useRef, useEffect } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  Animated,
 } from "react-native";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+} from "react-native-reanimated";
 import { Swipeable } from "react-native-gesture-handler";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { stripHtml, formatDate } from "../utils/storage";
+import { shadows, radius } from "../theme";
 
-export default function NoteCard({ note, onPress, onDelete, colors }) {
+export default function NoteCard({ note, onPress, onDelete, colors, index = 0 }) {
   const swipeableRef = useRef(null);
+
+  // Entrance animation
+  const opacity = useSharedValue(0);
+  const translateY = useSharedValue(18);
+
+  useEffect(() => {
+    const delay = Math.min(index * 40, 300);
+    setTimeout(() => {
+      opacity.value = withTiming(1, { duration: 280 });
+      translateY.value = withSpring(0, { damping: 18, stiffness: 200 });
+    }, delay);
+  }, []);
+
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
 
   const displayTitle =
     note.title ||
@@ -26,93 +49,121 @@ export default function NoteCard({ note, onPress, onDelete, colors }) {
   };
 
   const renderRightActions = (progress, dragX) => {
-    const scale = dragX.interpolate({
-      inputRange: [-80, 0],
-      outputRange: [1, 0],
-      extrapolate: "clamp",
-    });
     return (
       <TouchableOpacity
         style={[styles.deleteAction, { backgroundColor: colors.swipeDelete }]}
         onPress={handleDelete}
       >
-        <Animated.View style={{ transform: [{ scale }], alignItems: "center" }}>
-          <MaterialCommunityIcons name="trash-can-outline" size={22} color="#fff" />
-          <Text style={styles.deleteText}>Delete</Text>
-        </Animated.View>
+        <MaterialCommunityIcons name="trash-can-outline" size={22} color="#fff" />
+        <Text style={styles.deleteText}>Delete</Text>
       </TouchableOpacity>
     );
   };
 
+  const isPinned = note.isPinned;
+
   return (
-    <Swipeable
-      ref={swipeableRef}
-      renderRightActions={renderRightActions}
-      overshootRight={false}
-    >
-      <TouchableOpacity
-        style={[
-          styles.card,
-          { backgroundColor: note.isPinned ? colors.pinned : colors.cardBg },
-        ]}
-        onPress={onPress}
-        activeOpacity={0.75}
+    <Animated.View style={[styles.wrapper, animStyle]}>
+      <Swipeable
+        ref={swipeableRef}
+        renderRightActions={renderRightActions}
+        overshootRight={false}
+        friction={2}
       >
-        {note.isPinned && (
-          <MaterialCommunityIcons
-            name="pin"
-            size={13}
-            color={colors.primary}
-            style={styles.pinIcon}
-          />
-        )}
-        <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
-          {displayTitle}
-        </Text>
-        {preview.length > 0 && note.title ? (
-          <Text style={[styles.preview, { color: colors.subtext }]} numberOfLines={2}>
-            {preview}
-          </Text>
-        ) : null}
-        {note.tags && note.tags.length > 0 && (
-          <View style={styles.tagsRow}>
-            {note.tags.slice(0, 4).map((tag) => (
-              <View key={tag} style={[styles.tag, { backgroundColor: colors.tag }]}>
-                <Text style={[styles.tagText, { color: colors.tagText }]}>#{tag}</Text>
+        <TouchableOpacity
+          style={[
+            styles.card,
+            { backgroundColor: isPinned ? colors.pinned : colors.cardBg },
+          ]}
+          onPress={onPress}
+          activeOpacity={0.78}
+        >
+          {/* Left accent bar for pinned notes */}
+          {isPinned && (
+            <View
+              style={[styles.pinnedBar, { backgroundColor: colors.pinnedAccent }]}
+            />
+          )}
+          <View style={styles.cardContent}>
+            <View style={styles.titleRow}>
+              <Text
+                style={[styles.title, { color: colors.text }]}
+                numberOfLines={1}
+              >
+                {displayTitle}
+              </Text>
+              {isPinned && (
+                <MaterialCommunityIcons
+                  name="pin"
+                  size={13}
+                  color={colors.pinnedAccent}
+                />
+              )}
+            </View>
+            {preview.length > 0 && note.title ? (
+              <Text
+                style={[styles.preview, { color: colors.subtext }]}
+                numberOfLines={2}
+              >
+                {preview}
+              </Text>
+            ) : null}
+            {note.tags && note.tags.length > 0 && (
+              <View style={styles.tagsRow}>
+                {note.tags.slice(0, 4).map((tag) => (
+                  <View
+                    key={tag}
+                    style={[styles.tag, { backgroundColor: colors.tag }]}
+                  >
+                    <Text style={[styles.tagText, { color: colors.tagText }]}>
+                      #{tag}
+                    </Text>
+                  </View>
+                ))}
               </View>
-            ))}
+            )}
+            <Text style={[styles.date, { color: colors.subtext }]}>
+              {formatDate(note.updatedAt)}
+            </Text>
           </View>
-        )}
-        <Text style={[styles.date, { color: colors.subtext }]}>
-          {formatDate(note.updatedAt)}
-        </Text>
-      </TouchableOpacity>
-    </Swipeable>
+        </TouchableOpacity>
+      </Swipeable>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    padding: 14,
-    marginHorizontal: 16,
+  wrapper: {
+    marginHorizontal: 14,
     marginVertical: 5,
-    borderRadius: 10,
-    elevation: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
   },
-  pinIcon: {
-    position: "absolute",
-    top: 10,
-    right: 10,
+  card: {
+    borderRadius: radius.md,
+    flexDirection: "row",
+    overflow: "hidden",
+    ...shadows.md,
+  },
+  pinnedBar: {
+    width: 4,
+    borderTopLeftRadius: radius.md,
+    borderBottomLeftRadius: radius.md,
+  },
+  cardContent: {
+    flex: 1,
+    padding: 14,
+    paddingLeft: 12,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+    gap: 6,
   },
   title: {
+    flex: 1,
     fontSize: 15,
     fontWeight: "600",
-    marginBottom: 4,
-    paddingRight: 20,
   },
   preview: {
     fontSize: 13,
@@ -128,7 +179,7 @@ const styles = StyleSheet.create({
   tag: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 12,
+    borderRadius: radius.full,
   },
   tagText: {
     fontSize: 11,
@@ -138,16 +189,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   deleteAction: {
-    width: 80,
-    marginVertical: 5,
-    marginRight: 16,
-    borderRadius: 10,
+    width: 76,
+    borderRadius: radius.md,
+    marginLeft: 6,
     alignItems: "center",
     justifyContent: "center",
+    gap: 2,
+    ...shadows.sm,
   },
   deleteText: {
     color: "#fff",
     fontSize: 11,
-    marginTop: 2,
+    fontWeight: "500",
   },
 });
+

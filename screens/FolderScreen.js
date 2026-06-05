@@ -7,8 +7,13 @@ import {
   TextInput,
   StyleSheet,
   Alert,
-  useColorScheme,
 } from "react-native";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withDelay,
+} from "react-native-reanimated";
 import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -18,11 +23,72 @@ import {
   createFolder,
   loadNotes,
 } from "../utils/storage";
-import { lightColors, darkColors } from "../theme";
+import { useTheme } from "../contexts/ThemeContext";
+import { radius, shadows, typography } from "../theme";
+
+function FolderRow({ item, index, editingId, editingName, onEditName, onSubmitRename, onCancelEdit, onLongPress, onDelete, colors }) {
+  const opacity = useSharedValue(0);
+  const translateX = useSharedValue(-16);
+
+  React.useEffect(() => {
+    opacity.value = withDelay(index * 50, withTiming(1, { duration: 260 }));
+    translateX.value = withDelay(index * 50, withTiming(0, { duration: 260 }));
+  }, []);
+
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  return (
+    <Animated.View style={animStyle}>
+      <View
+        style={[
+          styles.row,
+          { backgroundColor: colors.surface, borderBottomColor: colors.border },
+        ]}
+      >
+        <MaterialCommunityIcons name="folder" size={22} color={colors.primary} />
+        {editingId === item.id ? (
+          <TextInput
+            style={[styles.editInput, { color: colors.text, borderColor: colors.border }]}
+            value={editingName}
+            onChangeText={onEditName}
+            onSubmitEditing={() => onSubmitRename(item.id)}
+            autoFocus
+            returnKeyType="done"
+          />
+        ) : (
+          <TouchableOpacity style={styles.folderInfo} onLongPress={() => onLongPress(item)}>
+            <Text style={[styles.folderName, { color: colors.text }]}>{item.name}</Text>
+            <Text style={[styles.noteCount, { color: colors.subtext }]}>
+              {item.count || 0} {item.count === 1 ? "note" : "notes"}
+            </Text>
+          </TouchableOpacity>
+        )}
+        <View style={styles.rowActions}>
+          {editingId === item.id ? (
+            <>
+              <TouchableOpacity onPress={() => onSubmitRename(item.id)} style={styles.iconBtn}>
+                <MaterialCommunityIcons name="check" size={20} color={colors.primary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={onCancelEdit} style={styles.iconBtn}>
+                <MaterialCommunityIcons name="close" size={20} color={colors.subtext} />
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity onPress={() => onDelete(item)} style={styles.iconBtn}>
+              <MaterialCommunityIcons name="trash-can-outline" size={20} color={colors.danger} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
 
 export default function FolderScreen() {
-  const scheme = useColorScheme();
-  const colors = scheme === "dark" ? darkColors : lightColors;
+  const { colors } = useTheme();
 
   const [folders, setFolders] = useState([]);
   const [noteCounts, setNoteCounts] = useState({});
@@ -98,86 +164,19 @@ export default function FolderScreen() {
     );
   };
 
-  const renderItem = ({ item }) => (
-    <View
-      style={[
-        styles.row,
-        { backgroundColor: colors.surface, borderBottomColor: colors.border },
-      ]}
-    >
-      <MaterialCommunityIcons
-        name="folder"
-        size={22}
-        color={colors.primary}
-      />
-      {editingId === item.id ? (
-        <TextInput
-          style={[
-            styles.editInput,
-            { color: colors.text, borderColor: colors.border },
-          ]}
-          value={editingName}
-          onChangeText={setEditingName}
-          onSubmitEditing={() => handleRenameFolder(item.id)}
-          autoFocus
-          returnKeyType="done"
-        />
-      ) : (
-        <TouchableOpacity
-          style={styles.folderInfo}
-          onLongPress={() => {
-            setEditingId(item.id);
-            setEditingName(item.name);
-          }}
-        >
-          <Text style={[styles.folderName, { color: colors.text }]}>
-            {item.name}
-          </Text>
-          <Text style={[styles.noteCount, { color: colors.subtext }]}>
-            {noteCounts[item.id] || 0}{" "}
-            {noteCounts[item.id] === 1 ? "note" : "notes"}
-          </Text>
-        </TouchableOpacity>
-      )}
-
-      <View style={styles.rowActions}>
-        {editingId === item.id ? (
-          <>
-            <TouchableOpacity
-              onPress={() => handleRenameFolder(item.id)}
-              style={styles.iconBtn}
-            >
-              <MaterialCommunityIcons
-                name="check"
-                size={20}
-                color={colors.primary}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setEditingId(null)}
-              style={styles.iconBtn}
-            >
-              <MaterialCommunityIcons
-                name="close"
-                size={20}
-                color={colors.subtext}
-              />
-            </TouchableOpacity>
-          </>
-        ) : (
-          <TouchableOpacity
-            onPress={() => handleDeleteFolder(item)}
-            style={styles.iconBtn}
-          >
-            <MaterialCommunityIcons
-              name="trash-can-outline"
-              size={20}
-              color={colors.danger}
-            />
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
+  const renderItem = ({ item, index }) => (
+    <FolderRow
+      item={{ ...item, count: noteCounts[item.id] || 0 }}
+      index={index}
+      editingId={editingId}
+      editingName={editingName}
+      onEditName={setEditingName}
+      onSubmitRename={handleRenameFolder}
+      onCancelEdit={() => setEditingId(null)}
+      onLongPress={(f) => { setEditingId(f.id); setEditingName(f.name); }}
+      onDelete={handleDeleteFolder}
+      colors={colors}
+    />
   );
 
   return (
@@ -246,12 +245,13 @@ export default function FolderScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   sectionLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.5,
+    ...typography.caption,
+    fontWeight: "700",
+    letterSpacing: 0.8,
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 10,
+    textTransform: "uppercase",
   },
   row: {
     flexDirection: "row",
@@ -303,15 +303,16 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: radius.md,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
   addBtn: {
     width: 44,
     height: 44,
-    borderRadius: 8,
+    borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
+    ...shadows.sm,
   },
 });

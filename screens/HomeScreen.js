@@ -1,21 +1,28 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   TextInput,
   StyleSheet,
-  useColorScheme,
   Alert,
 } from "react-native";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  interpolate,
+} from "react-native-reanimated";
 import { useFocusEffect } from "@react-navigation/native";
 import { FAB, Snackbar } from "react-native-paper";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import NoteCard from "../components/NoteCard";
 import { loadNotes, saveNotes, loadFolders } from "../utils/storage";
-import { lightColors, darkColors } from "../theme";
+import { useTheme } from "../contexts/ThemeContext";
+import { radius, shadows, typography } from "../theme";
 
 const SORT_OPTIONS = [
   { key: "updatedAt", label: "Last Modified" },
@@ -24,8 +31,8 @@ const SORT_OPTIONS = [
 ];
 
 export default function HomeScreen({ navigation }) {
-  const scheme = useColorScheme();
-  const colors = scheme === "dark" ? darkColors : lightColors;
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const [notes, setNotes] = useState([]);
   const [folders, setFolders] = useState([]);
@@ -37,9 +44,19 @@ export default function HomeScreen({ navigation }) {
   const [deletedNote, setDeletedNote] = useState(null);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
 
+  // FAB spring entrance
+  const fabScale = useSharedValue(0);
+  const fabStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: fabScale.value }],
+  }));
+
   useFocusEffect(
     useCallback(() => {
       loadData();
+      fabScale.value = withSpring(1, { damping: 12, stiffness: 200 });
+      return () => {
+        fabScale.value = 0;
+      };
     }, [])
   );
 
@@ -82,7 +99,7 @@ export default function HomeScreen({ navigation }) {
 
   const allTags = [
     ...new Set(
-      notes.filter((n) => !n.isArchived).flatMap((n) => n.tags)
+      notes.filter((n) => (showArchived ? n.isArchived : !n.isArchived)).flatMap((n) => n.tags)
     ),
   ];
 
@@ -118,6 +135,10 @@ export default function HomeScreen({ navigation }) {
   const unpinned = filteredNotes.filter((n) => !n.isPinned);
   const sortedNotes = showArchived ? filteredNotes : [...pinned, ...unpinned];
 
+  const visibleFolders = folders.filter((f) =>
+    notes.some((n) => (showArchived ? n.isArchived : !n.isArchived) && n.folderId === f.id)
+  );
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
@@ -131,7 +152,10 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.headerActions}>
           <TouchableOpacity
             onPress={() => setShowArchived((v) => !v)}
-            style={styles.headerIconBtn}
+            style={[
+              styles.headerIconBtn,
+              showArchived && { backgroundColor: colors.tag, borderRadius: radius.sm },
+            ]}
           >
             <MaterialCommunityIcons
               name={showArchived ? "archive" : "archive-outline"}
@@ -156,6 +180,7 @@ export default function HomeScreen({ navigation }) {
         style={[
           styles.searchContainer,
           { backgroundColor: colors.inputBg, borderColor: colors.border },
+          shadows.sm,
         ]}
       >
         <MaterialCommunityIcons name="magnify" size={18} color={colors.placeholder} />
@@ -168,138 +193,112 @@ export default function HomeScreen({ navigation }) {
         />
         {searchQuery.length > 0 && (
           <TouchableOpacity onPress={() => setSearchQuery("")}>
-            <MaterialCommunityIcons name="close" size={16} color={colors.placeholder} />
+            <MaterialCommunityIcons name="close-circle" size={17} color={colors.placeholder} />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Folder filter chips */}
-      {folders.length > 0 && (
-        <ScrollView
+      {/* Folder + Tag filter chips */}
+      {(visibleFolders.length > 0 || allTags.length > 0) && (
+        <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
+          data={[
+            { id: "__all__", name: "All", isAll: true },
+            ...visibleFolders.map((f) => ({ ...f, isFolder: true })),
+            ...allTags.map((t) => ({ id: `__tag__${t}`, name: `#${t}`, isTag: true, tagValue: t })),
+          ]}
+          keyExtractor={(item) => item.id}
           style={styles.chipsScroll}
           contentContainerStyle={styles.chipsContent}
-        >
-          <TouchableOpacity
-            onPress={() => setSelectedFolder(null)}
-            style={[
-              styles.chip,
-              { backgroundColor: !selectedFolder ? colors.primary : colors.tag },
-            ]}
-          >
-            <Text
-              style={[
-                styles.chipText,
-                { color: !selectedFolder ? "#fff" : colors.tagText },
-              ]}
-            >
-              All
-            </Text>
-          </TouchableOpacity>
-          {folders.map((folder) => (
-            <TouchableOpacity
-              key={folder.id}
-              onPress={() =>
-                setSelectedFolder(folder.id === selectedFolder ? null : folder.id)
-              }
-              style={[
-                styles.chip,
-                {
-                  backgroundColor:
-                    selectedFolder === folder.id ? colors.primary : colors.tag,
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.chipText,
-                  {
-                    color: selectedFolder === folder.id ? "#fff" : colors.tagText,
-                  },
-                ]}
-              >
-                {folder.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
+          renderItem={({ item }) => {
+            let isActive = false;
+            if (item.isAll) isActive = !selectedFolder && selectedTags.length === 0;
+            else if (item.isFolder) isActive = selectedFolder === item.id;
+            else if (item.isTag) isActive = selectedTags.includes(item.tagValue);
 
-      {/* Tag filter chips */}
-      {allTags.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.chipsScroll}
-          contentContainerStyle={styles.chipsContent}
-        >
-          {allTags.map((tag) => (
-            <TouchableOpacity
-              key={tag}
-              onPress={() => toggleTag(tag)}
-              style={[
-                styles.chip,
-                {
-                  backgroundColor: selectedTags.includes(tag)
-                    ? colors.primary
-                    : colors.tag,
-                },
-              ]}
-            >
-              <Text
+            return (
+              <TouchableOpacity
+                onPress={() => {
+                  if (item.isAll) {
+                    setSelectedFolder(null);
+                    setSelectedTags([]);
+                  } else if (item.isFolder) {
+                    setSelectedFolder(item.id === selectedFolder ? null : item.id);
+                  } else if (item.isTag) {
+                    toggleTag(item.tagValue);
+                  }
+                }}
                 style={[
-                  styles.chipText,
+                  styles.chip,
                   {
-                    color: selectedTags.includes(tag) ? "#fff" : colors.tagText,
+                    backgroundColor: isActive ? colors.primary : colors.tag,
+                    borderColor: isActive ? colors.primary : "transparent",
                   },
                 ]}
               >
-                #{tag}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+                <Text
+                  style={[
+                    styles.chipText,
+                    { color: isActive ? "#fff" : colors.tagText },
+                  ]}
+                >
+                  {item.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          }}
+        />
       )}
 
       {/* Notes List */}
-      <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-        {sortedNotes.length === 0 ? (
+      <FlatList
+        data={sortedNotes}
+        keyExtractor={(note) => note.id}
+        style={styles.list}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={sortedNotes.length === 0 ? styles.emptyContainer : { paddingBottom: 100 }}
+        renderItem={({ item, index }) => (
+          <NoteCard
+            note={item}
+            index={index}
+            colors={colors}
+            onPress={() => navigation.navigate("Edit", { noteId: item.id })}
+            onDelete={handleDeleteNote}
+          />
+        )}
+        ListEmptyComponent={
           <View style={styles.emptyState}>
             <MaterialCommunityIcons
-              name="note-outline"
-              size={52}
-              color={colors.subtext}
+              name="note-text-outline"
+              size={60}
+              color={colors.border}
             />
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>
+              {showArchived ? "No archived notes" : "No notes yet"}
+            </Text>
             <Text style={[styles.emptyText, { color: colors.subtext }]}>
               {showArchived
-                ? "No archived notes"
+                ? "Archived notes will appear here"
                 : searchQuery || selectedTags.length > 0
                 ? "No notes match your search"
-                : "No notes yet. Tap + to create one."}
+                : "Tap + to create your first note"}
             </Text>
           </View>
-        ) : (
-          sortedNotes.map((note) => (
-            <NoteCard
-              key={note.id}
-              note={note}
-              colors={colors}
-              onPress={() => navigation.navigate("Edit", { noteId: note.id })}
-              onDelete={handleDeleteNote}
-            />
-          ))
-        )}
-        <View style={{ height: 100 }} />
-      </ScrollView>
+        }
+      />
 
       {!showArchived && (
-        <FAB
-          icon="plus"
-          style={[styles.fab, { backgroundColor: colors.primary }]}
-          color="#fff"
-          onPress={() => navigation.navigate("Edit", { noteId: null })}
-        />
+        <Animated.View style={[styles.fabWrapper, { bottom: 28 + insets.bottom }, fabStyle]}>
+          <FAB
+            icon={({ size, color }) => (
+              <MaterialCommunityIcons name="plus" size={size} color={color} />
+            )}
+            style={[styles.fab, { backgroundColor: colors.primary }]}
+            color="#fff"
+            onPress={() => navigation.navigate("Edit", { noteId: null })}
+          />
+        </Animated.View>
       )}
 
       <Snackbar
@@ -328,23 +327,23 @@ const styles = StyleSheet.create({
   },
   appTitle: {
     flex: 1,
-    fontSize: 22,
-    fontWeight: "700",
+    ...typography.appTitle,
   },
   headerActions: {
     flexDirection: "row",
     gap: 2,
   },
   headerIconBtn: {
-    padding: 6,
+    padding: 7,
   },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
-    margin: 12,
+    marginHorizontal: 14,
+    marginVertical: 10,
     paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 10,
+    paddingVertical: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
     gap: 8,
   },
@@ -353,37 +352,51 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   chipsScroll: {
-    maxHeight: 38,
-    marginBottom: 4,
+    maxHeight: 42,
+    marginBottom: 2,
   },
   chipsContent: {
-    paddingHorizontal: 12,
-    gap: 6,
+    paddingHorizontal: 14,
+    gap: 7,
     alignItems: "center",
+    paddingVertical: 4,
   },
   chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    borderWidth: 1,
   },
   chipText: {
     fontSize: 12,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   list: { flex: 1 },
+  emptyContainer: {
+    flexGrow: 1,
+    justifyContent: "center",
+  },
   emptyState: {
     alignItems: "center",
-    marginTop: 80,
-    gap: 12,
+    paddingHorizontal: 40,
+    gap: 8,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginTop: 8,
   },
   emptyText: {
-    fontSize: 15,
+    fontSize: 14,
     textAlign: "center",
-    paddingHorizontal: 40,
+    lineHeight: 20,
   },
-  fab: {
+  fabWrapper: {
     position: "absolute",
     right: 20,
-    bottom: 24,
+    bottom: 28,
+  },
+  fab: {
+    ...shadows.lg,
   },
 });
